@@ -1,21 +1,25 @@
 package com.example.othello.viewmodel
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.othello.data.GamePreferences
+import com.example.othello.data.GameStats
 import com.example.othello.engine.AiPlayer
 import com.example.othello.engine.OthelloEngine
 import com.example.othello.model.GameSnapshot
 import com.example.othello.model.GameState
 import com.example.othello.model.GameStatus
 import com.example.othello.model.Piece
-import com.example.othello.model.opponent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class GameViewModel : ViewModel() {
+class GameViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = GamePreferences(application)
 
     var gameState by mutableStateOf(createInitialState())
         private set
@@ -23,14 +27,31 @@ class GameViewModel : ViewModel() {
     var isAiThinking by mutableStateOf(false)
         private set
 
+    var showValidMoves by mutableStateOf(prefs.showValidMoves)
+        private set
+
+    var stats by mutableStateOf(prefs.getStats())
+        private set
+
+    private var hasRecordedCurrentGame = false
+
     private fun createInitialState(): GameState {
         val board = OthelloEngine.createInitialBoard()
         return OthelloEngine.createGameState(board, Piece.BLACK)
     }
 
+    fun setShowValidMovesPreference(enabled: Boolean) {
+        showValidMoves = enabled
+        prefs.showValidMoves = enabled
+    }
+
+    fun resetStats() {
+        prefs.resetStats()
+        stats = prefs.getStats()
+    }
+
     fun onCellClicked(row: Int, col: Int) {
         val state = gameState
-        // Ignore taps when it's not the human's turn, game is over, or AI is thinking
         if (state.currentPlayer != Piece.BLACK) return
         if (state.gameStatus != GameStatus.PLAYING) return
         if (isAiThinking) return
@@ -46,7 +67,6 @@ class GameViewModel : ViewModel() {
         val newBoard = OthelloEngine.placePiece(state.board, row, col, Piece.BLACK)
         val newHistory = state.moveHistory + snapshot
 
-        // Show the flipping pieces for animation
         val nextPlayer = Piece.WHITE
         gameState = OthelloEngine.createGameState(
             board = newBoard,
@@ -55,12 +75,11 @@ class GameViewModel : ViewModel() {
             lastMove = Pair(row, col)
         ).copy(flippingPieces = flipped)
 
-        // After a brief animation delay, clear the flipping state and trigger AI
-        viewModelScope.launch {
-            delay(400) // match flip animation duration
-            gameState = gameState.copy(flippingPieces = emptyList())
+        checkAndRecordGameOver(gameState)
 
-            // Check if AI can move, or if turn passes back, or game is over
+        viewModelScope.launch {
+            delay(400)
+            gameState = gameState.copy(flippingPieces = emptyList())
             advanceGame()
         }
     }
@@ -68,28 +87,26 @@ class GameViewModel : ViewModel() {
     private suspend fun advanceGame() {
         val state = gameState
 
-        if (state.gameStatus != GameStatus.PLAYING) return
+        if (state.gameStatus != GameStatus.PLAYING) {
+            checkAndRecordGameOver(state)
+            return
+        }
 
         if (state.currentPlayer == Piece.WHITE) {
             if (state.validMoves.isEmpty()) {
-                // AI has no moves — pass back to human
                 val humanMoves = OthelloEngine.getValidMoves(state.board, Piece.BLACK)
-                if (humanMoves.isEmpty()) {
-                    // Neither can move — game over
-                    gameState = OthelloEngine.createGameState(
-                        state.board, Piece.BLACK, state.moveHistory, state.lastMove
-                    )
-                } else {
-                    gameState = OthelloEngine.createGameState(
-                        state.board, Piece.BLACK, state.moveHistory, state.lastMove
-                    )
+                gameState = OthelloEngine.createGameState(
+                    state.board, Piece.BLACK, state.moveHistory, state.lastMove
+                )
+                checkAndRecordGameOver(gameState)
+                if (humanMoves.isNotEmpty()) {
+                    // Turn passed to human
                 }
                 return
             }
 
-            // AI's turn
             isAiThinking = true
-            delay(500) // Small delay so AI doesn't feel instant
+            delay(500)
 
             val aiMove = AiPlayer.chooseBestMove(state.board, Piece.WHITE)
             if (aiMove != null) {
@@ -99,7 +116,6 @@ class GameViewModel : ViewModel() {
                 val aiBoard = OthelloEngine.placePiece(state.board, aiRow, aiCol, Piece.WHITE)
                 val aiHistory = state.moveHistory + aiSnapshot
 
-                // Show AI's flipping animation
                 gameState = OthelloEngine.createGameState(
                     board = aiBoard,
                     currentPlayer = Piece.BLACK,
@@ -107,31 +123,41 @@ class GameViewModel : ViewModel() {
                     lastMove = Pair(aiRow, aiCol)
                 ).copy(flippingPieces = aiFlipped)
 
+                checkAndRecordGameOver(gameState)
+
                 delay(400)
                 gameState = gameState.copy(flippingPieces = emptyList())
                 isAiThinking = false
 
-                // Check if human can move
                 val updatedState = gameState
                 if (updatedState.gameStatus == GameStatus.PLAYING && updatedState.validMoves.isEmpty()) {
-                    // Human has no moves — pass back to AI
                     gameState = OthelloEngine.createGameState(
                         updatedState.board, Piece.WHITE, updatedState.moveHistory, updatedState.lastMove
                     )
+                    checkAndRecordGameOver(gameState)
                     advanceGame()
                 }
             } else {
                 isAiThinking = false
             }
         } else {
-            // Human's turn
             if (state.validMoves.isEmpty()) {
-                // Human can't move — pass to AI
                 gameState = OthelloEngine.createGameState(
                     state.board, Piece.WHITE, state.moveHistory, state.lastMove
                 )
+                checkAndRecordGameOver(gameState)
                 advanceGame()
             }
+        }
+    }
+
+    private fun checkAndRecordGameOver(state: GameState) {
+        if (!hasRecordedCurrentGame && state.gameStatus != GameStatus.PLAYING) {
+            hasRecordedCurrentGame = true
+            val isWin = state.gameStatus == GameStatus.BLACK_WINS
+            val isDraw = state.gameStatus == GameStatus.DRAW
+            prefs.recordGameResult(isWin, isDraw, state.blackScore)
+            stats = prefs.getStats()
         }
     }
 
@@ -140,12 +166,9 @@ class GameViewModel : ViewModel() {
         if (state.moveHistory.isEmpty()) return
         if (isAiThinking) return
 
-        // Undo back to the last human move state (undo both AI + human)
-        // Find the last snapshot where it was the human's (BLACK's) turn
         var history = state.moveHistory
         var restored: GameSnapshot? = null
 
-        // Pop until we find a BLACK turn snapshot (the state before the human moved)
         while (history.isNotEmpty()) {
             val last = history.last()
             history = history.dropLast(1)
@@ -161,11 +184,13 @@ class GameViewModel : ViewModel() {
                 currentPlayer = restored.currentPlayer,
                 moveHistory = history
             )
+            hasRecordedCurrentGame = false
         }
     }
 
     fun newGame() {
         isAiThinking = false
+        hasRecordedCurrentGame = false
         gameState = createInitialState()
     }
 }

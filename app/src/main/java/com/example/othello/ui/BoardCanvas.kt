@@ -34,6 +34,7 @@ private val LastMoveGlow = Color(0xCCFFD700)
 @Composable
 fun BoardCanvas(
     gameState: GameState,
+    showValidMoves: Boolean,
     onCellClicked: (row: Int, col: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -136,15 +137,17 @@ fun BoardCanvas(
             }
         }
 
-        // Draw valid move indicators
-        for ((row, col) in gameState.validMoves) {
-            val cx = frameThickness + col * cellSize + cellSize / 2
-            val cy = frameThickness + row * cellSize + cellSize / 2
-            drawCircle(
-                color = ValidMoveColor,
-                radius = cellSize * 0.15f,
-                center = Offset(cx, cy)
-            )
+        // Draw valid move indicators if enabled
+        if (showValidMoves) {
+            for ((row, col) in gameState.validMoves) {
+                val cx = frameThickness + col * cellSize + cellSize / 2
+                val cy = frameThickness + row * cellSize + cellSize / 2
+                drawCircle(
+                    color = ValidMoveColor,
+                    radius = cellSize * 0.15f,
+                    center = Offset(cx, cy)
+                )
+            }
         }
 
         // Draw last move indicator
@@ -238,7 +241,6 @@ private fun DrawScope.drawFlippingPiece(
     finalPiece: Piece,
     progress: Float,
 ) {
-    // Flip animation: scale X goes 1->0->1, color changes at midpoint
     val scaleX = if (progress < 0.5f) {
         1f - progress * 2f
     } else {
@@ -246,13 +248,11 @@ private fun DrawScope.drawFlippingPiece(
     }
 
     val displayPiece = if (progress < 0.5f) finalPiece.let {
-        // Before midpoint, show the OLD color (opponent of final)
         if (it == Piece.BLACK) Piece.WHITE else Piece.BLACK
     } else {
         finalPiece
     }
 
-    // Draw with horizontal scaling effect (simulate by adjusting radius)
     val scaledRadius = radius * maxOf(scaleX, 0.05f)
     drawPiece(cx, cy, scaledRadius, displayPiece)
 }

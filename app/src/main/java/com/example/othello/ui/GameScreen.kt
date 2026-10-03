@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +36,7 @@ import com.example.othello.viewmodel.GameViewModel
 private val BgTop = Color(0xFF5D4037)
 private val BgBottom = Color(0xFF3E2723)
 private val ButtonColor = Color(0xFF5D4037)
+private val AccentGold = Color(0xFFFFD54F)
 
 @Composable
 fun GameScreen(
@@ -41,9 +45,13 @@ fun GameScreen(
 ) {
     val gameState = viewModel.gameState
     val isAiThinking = viewModel.isAiThinking
+    val showValidMoves = viewModel.showValidMoves
+    val stats = viewModel.stats
+
     var showGameOver by remember(gameState.gameStatus) {
         mutableStateOf(gameState.gameStatus != GameStatus.PLAYING)
     }
+    var showSettings by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -57,13 +65,33 @@ fun GameScreen(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Title
-        Text(
-            text = "Othello",
-            color = Color(0xFFFFD54F),
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        // Top Header with Title and Settings button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(modifier = Modifier.size(40.dp)) // Balance the settings icon
+
+            Text(
+                text = "Othello",
+                color = AccentGold,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+            )
+
+            FilledTonalIconButton(
+                onClick = { showSettings = true },
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = ButtonColor.copy(alpha = 0.8f),
+                    contentColor = AccentGold
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Text(text = "⚙️", fontSize = 18.sp)
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -80,6 +108,7 @@ fun GameScreen(
         // Board
         BoardCanvas(
             gameState = gameState,
+            showValidMoves = showValidMoves,
             onCellClicked = { row, col -> viewModel.onCellClicked(row, col) },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -128,6 +157,17 @@ fun GameScreen(
                 viewModel.newGame()
             },
             onDismiss = { showGameOver = false },
+        )
+    }
+
+    // Settings & Stats dialog
+    if (showSettings) {
+        SettingsDialog(
+            showValidMoves = showValidMoves,
+            onShowValidMovesChanged = { viewModel.setShowValidMovesPreference(it) },
+            stats = stats,
+            onResetStats = { viewModel.resetStats() },
+            onDismiss = { showSettings = false }
         )
     }
 }
